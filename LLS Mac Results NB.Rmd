@@ -1,0 +1,267 @@
+---
+title: "MacArthur"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+```{r, include=FALSE}
+library(haven)
+library(psych)
+library(psycholing)
+library(MASS)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(pscl)
+library(boot)
+library(nortest)
+library(MBESS)
+library(sem)
+library(pscl)
+library(Amelia)
+library(ROCR)
+library(pscl)
+library(stargazer)
+
+#mac <- read.csv("~/Late Life Suicide/Mac Full.csv")
+#mac <- subset(mac, select = -c(1), na.strings = c(''))
+#mac <- subset(mac, na.strings = c(''))
+
+mac <- read.csv("~/Late Life Suicide/macfix.csv")
+mac <- subset(mac, select = -c(1), na.strings = c(''))
+View(mac)
+
+```
+
+
+```{r, New Variables, Dummy Coding, and Subsets, include=FALSE}
+
+# No Controls Subset
+mac.nocontrols <- subset(mac, depressed == 1 | ideators == 1 | attempters == 1, 
+                         select = ID:SNI_EMBEDDED_NETWORK)
+
+# DUMMY CODES
+# Group
+  # Control as Reference Group
+  depressed <- ifelse(mac$COMMENT == 'DEPRESSION', 1, 0)
+  ideators <- ifelse(mac$COMMENT == 'IDEATOR', 1, 0)
+  attempters <- ifelse(mac$COMMENT == 'ATTEMPTER', 1, 0)
+  mac$depressed <- depressed
+  mac$ideators <- ideators
+  mac$attempters <- attempters
+  # Depressed as Reference Group
+  dc.id <- ifelse(mac.nocontrols$COMMENT == 'IDEATOR', 1, 0)
+  dc.att <- ifelse(mac.nocontrols$COMMENT == 'ATTEMPTER', 1, 0)
+  mac.nocontrols$dc.id <- dc.id
+  mac.nocontrols$dc.att <- dc.att
+  
+  # Gender
+male <- ifelse(mac$SEX == 'MALE', 1, 0)
+mac$male <- male
+
+# Standardized Income
+sdIncome <- sd(mac$INCOME)
+meancome <- mean(mac$INCOME)
+mac$INCOMEcst <- (mac$INCOME - meancome)/sdIncome
+
+# Current SES
+
+# SUBSETS BY GROUP
+mac.att <- subset(mac, attempters == 1, select = ID:INCOMEcst)
+mac.id <- subset(mac, ideators == 1, select = ID:INCOMEcst)
+mac.dep <- subset(mac, depressed == 1, select = ID:INCOMEcst)
+mac.control <- subset(mac, depressed == 0 & ideators == 0 & attempters == 0, select = ID:INCOMEcst)
+
+mac$SES <- mac$SES1 - mac$SESdrop
+mac$SES
+
+describeBy(mac, group = 'COMMENT', type = 3)
+
+```
+
+
+```{r Theta Calculation, include=FALSE}
+
+SESdropCOL <- mac$SESdrop
+mu <- mean(SESdropCOL, na.rm = TRUE)
+SESdropCOL <- na.omit(SESdropCOL)
+length(SESdropCOL)
+theta.SESdrop <- theta.ml(SESdropCOL, mean(SESdropCOL), 166, limit = 50, eps = .Machine$double.eps^.25, trace = FALSE)  
+theta.SESdrop
+
+SESdropCOL.nc <- mac.nocontrols$SESdrop
+mu.nc <- mean(SESdropCOL.nc, na.rm = TRUE)
+SESdrop.nc <- na.omit(SESdropCOL.nc)
+length(SESdrop.nc)
+theta.SESdrop.nc <- theta.ml(SESdrop.nc, mean(SESdrop.nc), 117, limit = 50, eps = .Machine$double.eps^.25, trace = FALSE)  
+theta.SESdrop.nc
+
+mean(mac$SES1)
+SES1COL <- mac$SES1
+mu.ses1 <- mean(SES1COL, na.rm = TRUE)
+SES1COL <- na.omit(SES1COL)
+length(SES1COL)
+theta.SES1 <- theta.ml(SES1COL, 5.457831, 166, limit = 50, eps = .Machine$double.eps^.25, trace = FALSE)  
+theta.SES1
+
+#mean(mac.nocontrols$SES1)
+#SES1COL.nc <- mac.nocontrols$SES1
+#length(SES1COL.nc)
+#theta.SES1.nc <- theta.ml(SES1COL.nc, mean(mac.nocontrols$SES1, na.omit), 117, limit = 100, eps = .Machine$double.eps^.25, trace = FALSE)  
+#theta.SES1.nc
+
+```
+
+```{r Residualized Change, include=FALSE}
+
+# RESIDUALIZED CHANGE
+
+r.drop.model <- glm(SESdrop ~ SES1, family = negative.binomial(theta = theta.SESdrop), data = mac)
+r.drop <- residuals(r.drop.model)
+mac$r.drop = r.drop
+mac$r.drop <- r.drop
+
+r.drop.model.nc <- glm(SESdrop ~ SES1, family = negative.binomial(theta = theta.SESdrop.nc), data = mac.nocontrols)
+r.drop.nc <- residuals(r.drop.model.nc)
+mac.nocontrols$r.drop.nc = r.drop.nc
+mac.nocontrols$r.drop.nc <- r.drop.nc
+
+#res.drop.nc <- glm(SESdrop ~ SES1, family = negative.binomial(theta = theta.SESdrop.nc), data = mac.nocontrols)
+#residuals(res.drop.nc)
+#resids.drop.nc = res.drop.nc$residuals.drop.nc
+#mac.nocontrols$residuals.drop.nc = resids.drop.nc
+#mac.nocontrols$residuals.drop.nc <- resids.drop.nc
+
+```
+
+```{r Diagnostics, echo=FALSE}
+
+library(plyr)
+ddply(mac,~COMMENT, summarise, mean = mean(mac$SES1), sd = sd(mac$SES1)) 
+ddply(mac,~COMMENT, summarise, mean = mean(mac$SESdrop), sd = sd(mac$SESdrop)) 
+
+#hist(mac$residuals, breaks = 20)
+#hist(mac.nocontrols$residuals.nc, breaks = 20)
+#hist(mac$residuals.lin, breaks = 20)
+
+#ggplot(data = mac, aes(x = residuals, xlab = "SES", group = COMMENT, fill = COMMENT)) + 
+    #geom_density(adjust = 1.5, alpha = 0.2)
+#ggplot(data = mac, aes(x = residuals.lin, xlab = "SES", group = COMMENT, fill = COMMENT)) + 
+    #geom_density(adjust = 1.5, alpha = 0.2)
+
+hist(mac$SESdrop, breaks = 10)
+hist(mac$SES, breaks = 10)
+hist(mac$SES1, breaks = 12)
+
+ggplot(data = mac, aes(x = SES, xlab = "SES", group = COMMENT, fill = COMMENT)) + 
+    geom_density(adjust = 1.5, alpha = 0.2)
+ggplot(data = mac, aes(x = SES, xlab = "SES1", group = COMMENT, fill = COMMENT)) + 
+    geom_density(adjust = 1.5, alpha = 0.2)
+ggplot(data = mac, aes(x = SES, xlab = "SESdrop", group = COMMENT, fill = COMMENT)) + 
+    geom_density(adjust = 1.5, alpha = 0.2)
+
+boxplot(SES ~ COMMENT, data = mac, main = toupper("Raw Median Differences Status"), font.main = 3, cex.main = 1.2, col = c("palevioletred4", "paleturquoise2", "seashell", "plum"), xlab = "Group", ylab = "Status", font.lab = 3, notch = TRUE, range = 0)
+
+boxplot(SES1 ~ COMMENT, data = mac, main = toupper("Raw Median Differences in Highest Status"), font.main = 3, cex.main = 1.2, col = c("palevioletred4", "paleturquoise2", "seashell", "plum"), xlab = "Group", ylab = "Highest Status", font.lab = 3, notch = TRUE, range = 0)
+
+boxplot(SESdrop ~ COMMENT, data = mac, main = toupper("Raw Median Differences in Highest Status"), font.main = 3, cex.main = 1.2, col = c("palevioletred4", "paleturquoise2", "seashell", "plum"), xlab = "Group", ylab = "Status Drop", font.lab = 3, notch = TRUE, range = 0)
+
+boxplot(SES ~ COMMENT, data = mac, main = "Raw Group Differences in Status", 
+  	xlab = "Group", ylab = "Raw Status", varwidth = TRUE, col =  cm.colors(3))
+
+boxplot(SES1 ~ COMMENT, data = mac, main = "Raw Group Differences in Highest Status", 
+  	xlab = "Group", ylab = "Highest Status", varwidth = TRUE, col =  cm.colors(3))
+
+boxplot(SESdrop ~ COMMENT, data = mac, main = "Raw Group Differences in Status Drop", 
+  	xlab = "Group", ylab = "Status Drop", varwidth = TRUE, col =  cm.colors(3))
+
+boxplot(INCOME ~ COMMENT, data = mac, main = "Raw Group Differences in Income", 
+  	xlab = "Group", ylab = "Income", varwidth = TRUE, col =  cm.colors(3))
+
+boxplot(edu ~ COMMENT, data = mac, main = "Raw Group Differences in Education", 
+  	xlab = "Group", ylab = "Education", varwidth = TRUE, col =  cm.colors(3))
+
+```
+
+```{r Negative Binomial with Theta}
+
+# Healthy as reference group  ############################################################################################################
+  # Only controls
+summary(SES.onlyControlVars <- glm(SESdrop ~ SES1 + age + SEX + INCOME, 
+              family = negative.binomial(theta = theta.SESdrop), data = mac))
+  # Just group controlling for highest status (SES1), no other controls
+summary(SES <- glm(SESdrop ~ SES1 
+                   + attempters + ideators + depressed,
+              family = negative.binomial(theta = theta.SESdrop), data = mac))
+  # Controlling for highest status
+summary(SES.c <- glm(SESdrop ~ SES1 + age + SEX + INCOME 
+                     + attempters + ideators + depressed, 
+              family = negative.binomial(theta = theta.SESdrop), data = mac))
+
+# Depressed as reference group  ##########################################################################################################
+
+  # Only controls
+summary(SES2.onlyControlVars <- glm(SESdrop ~ SES1 + age + SEX + INCOME, 
+                family = negative.binomial(theta = theta.SESdrop.nc), data = mac.nocontrols))
+  # Just group controlling for highest status (SES1), no other controls
+summary(SES2 <- glm(SESdrop ~ SES1 
+                    + dc.att + dc.id, 
+                family = negative.binomial(theta = theta.SESdrop.nc), data = mac.nocontrols))
+  # With groups and control variables
+summary(SES2.c <- glm(SESdrop ~ SES1 + age + SEX + INCOME
+                      + dc.att + dc.id 
+                      + age + SEX + INCOME, 
+                family = negative.binomial(theta = theta.SESdrop.nc), data = mac.nocontrols))
+
+```
+
+```{r SES1 Interaction by Group}
+
+  # Controlling for highest status (effect can vary across group, interaction) age sex income control
+summary(SES.cInt <- glm(SESdrop ~ SES1 + age + SEX + INCOME 
+                     + attempters + ideators + depressed 
+                     + SES1:attempters + SES1:ideators + SES1:depressed, 
+              family = negative.binomial(theta = theta.SESdrop), data = mac))
+
+summary(SES2.cInt <- glm(SESdrop ~ SES1 + age + SEX + INCOME
+                      + dc.att + dc.id + SES1 
+                      + age + SEX + INCOME
+                      + SES1:dc.att + SES1:dc.id, 
+                family = negative.binomial(theta = theta.SESdrop.nc), data = mac.nocontrols))
+
+```
+
+
+```{r Education and Income Differences}
+
+# INCOME
+  # Healthy as reference group
+summary(income <- lm(INCOME ~ attempters + ideators + depressed, data = mac))
+summary(income <- lm(INCOME ~ age + SEX + attempters + ideators + depressed, data = mac)) # Control age sex
+  # Depressed as reference group
+summary(income <- lm(INCOME ~ dc.att + dc.id, data = mac.nocontrols))
+summary(income <- lm(INCOME ~ age + SEX + dc.att + dc.id, data = mac.nocontrols)) # Control age sex
+
+# Education 
+  # Healthy as reference group
+summary(education <- lm(edu ~ attempters + ideators + depressed, data = mac))
+summary(education <- lm(edu ~ age + SEX + attempters + ideators + depressed, data = mac)) # Control age sex
+  # Depressed as reference group
+summary(education <- lm(edu ~ dc.att + dc.id, data = mac.nocontrols))
+summary(education <- lm(edu ~ dc.att + dc.id, data = mac.nocontrols)) # Control age sex
+
+```
+
+```{r Highest Status Differences}
+
+# INCOME
+  # Healthy as reference group
+summary(highest <- lm(SES1 ~ attempters + ideators + depressed, data = mac))
+summary(highest <- lm(SES1 ~ age + SEX + attempters + ideators + depressed, data = mac)) # Control age sex
+  # Depressed as reference group
+summary(highest <- lm(SES1 ~ dc.att + dc.id, data = mac.nocontrols))
+summary(highest <- lm(SES1 ~ age + SEX + dc.att + dc.id, data = mac.nocontrols)) # Control age sex
+
+```
+
