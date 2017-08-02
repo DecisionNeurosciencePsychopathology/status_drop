@@ -40,6 +40,23 @@ mac <- read.csv("~/Box Sync/skinner/projects_analyses/Project_status_drop/macfix
 mac <- subset(mac, select = -c(1), na.strings = c(''))
 #View(mac)
 
+# also read in original data for QC
+macorig <- read_excel("~/Box Sync/skinner/projects_analyses/Project_status_drop/Macarthur and DOI REVISED 11-21-16.xlsx",
+sheet = "MACARTHUR AND DOI SCORES")
+# View(macorig1)
+# n = 166
+macorig <- macorig[macorig$`AGE AT SES` <90,]
+
+
+# equate on age
+macorig$oldcontrol <- ifelse(macorig$COMMENT == 'CONTROL' & macorig$`AGE AT SES` >85, 1, 0 )
+sum(macorig$oldcontrol)
+macorig <- macorig[macorig$oldcontrol==0,]
+describe(macorig$`MACARTHUR DATA CHANGES`)
+
+# vector of original SES drop values
+mac$originals <- macorig1$`MACARTHUR DATA CHANGES`=="ORIGINAL"
+
 ```
 
 
@@ -515,7 +532,7 @@ plot(ls5, type ~ SES, horiz=F,ylab = "SES", xlab = "time", comparisons = TRUE, a
 
 
 # check for predictor colinearity
-predictors <- mac[,c(10,16,25, 26, 51, 52, 106, 107)]
+predictors <- mac[,c(10,16,25, 26, 51, 52, 107)]
 cormat <- (cor(predictors))
 order <- corrMatOrder(cormat, order="AOE")
 rcormat <- cormat[order,order]
@@ -545,6 +562,7 @@ summary(m8b <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + regret*time + S
 car::Anova(m8b)
 anova(m4,m6, m8b)
 
+describe(mac$SES)
 # no effect of lethality
 summary(m9 <- lmer(SES ~ LETHALITYMOSTLETHAL*time + (1|ID), data = m))
 
@@ -559,6 +577,40 @@ summary(hirm2 <- lm(r.hi ~ COMMENT, data = mac))
 # it's not really higher, maybe a bit for SA
 boxplot(r.hi ~ COMMENT, data = mac, main = "Group Differences in Highest Status corrected for age, education, IQ", 
   	xlab = "Group", ylab = "Status", varwidth = TRUE, col =  cm.colors(3))
+
+# sensitivity analyses to r/o effects of differential drop scaling
+
+summary(sm1 <- glm(drop ~ COMMENT, family = binomial(link = "logit"), data = mac))
+summary(sm2 <- glm(drop ~  age + COMMENT, family = binomial(link = "logit"), data = mac))
+anova(sm1,sm2)
+
+# sensitivity analyses excluding recoded and unclear cases
+# mo = m original, excluding recoded and unclear cases
+mo <- m[m$originals,]
+# redo the best-fitting model: identical results
+summary(mo2 <- lmerTest::lmer(SES ~ time + edu*time + age*time + INCOMEcst*time +  COMMENT*time + (1|ID), data = mo))
+car::Anova(mo2)
+
+# take the log of SES to take care of distortion (lower current SES allows for larger drop)
+summary(m2log <- lmerTest::lmer(log(SES + 1) ~ time + edu*time + age*time + INCOMEcst*time +  COMMENT*time + (1|ID), data = mo))
+car::Anova(m2log)
+
+# check SES intercorrelations
+boxplot(SES ~ time, data = m, main = "Change in SES", 
+  	xlab = "Time point", ylab = "Status", varwidth = TRUE, col =  cm.colors(3))
+ses <- mac[,c(16,17,25)]
+cormat <- (cor(ses))
+order <- corrMatOrder(cormat, order="AOE")
+rcormat <- cormat[order,order]
+corrplot(rcormat)
+
+# with log-transform
+seslog <- log(mac[,c(16,17,25)]+1)
+cormat <- (cor(seslog))
+order <- corrMatOrder(cormat, order="AOE")
+rcormat <- cormat[order,order]
+corrplot(rcormat)
+
 
 
 ```
