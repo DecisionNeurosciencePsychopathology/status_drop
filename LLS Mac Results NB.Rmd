@@ -30,6 +30,7 @@ library(doBy)
 library(xtable)
 library(corrplot)
 library(readxl)
+library(nnet)
 
 #mac <- read.csv("~/Late Life Suicide/Mac Full.csv")
 #mac <- subset(mac, select = -c(1), na.strings = c(''))
@@ -37,6 +38,7 @@ library(readxl)
 
 #mac <- read.csv("~/Late Life Suicide/macfix.csv")
 # for Alex only:
+setwd("~/Box Sync/skinner/projects_analyses/Project_status_drop")
 mac <- read.csv("~/Box Sync/skinner/projects_analyses/Project_status_drop/macfix.csv")
 mac <- subset(mac, select = -c(1), na.strings = c(''))
 #View(mac)
@@ -140,7 +142,13 @@ mac$grp_leth[mac$GROUP12467 == 6] <- "LL"
 mac$grp_leth[mac$GROUP12467 == 7] <- "HL"
 mac$grp_leth <- as.factor(mac$grp_leth)
 
+# code depression diagnosis
+mac$depDx <- mac$group > 1
 
+mac$SubstanceCurrent <- as.factor(mac$SubstanceCurrent)
+mac$AnxietyCurrent <- as.factor(mac$AnxietyCurrent)
+mac$SubstanceLifetime <- as.factor(mac$SubstanceLifetime)
+mac$AnxietyLifetime <- as.factor(mac$AnxietyLifetime)
 
 # equate on education
 #mac$oldcontrol <- ifelse(mac$COMMENT == 'CONTROL' & mac$edu >17, 1, 0 )
@@ -336,17 +344,24 @@ summary(SES <- glm(SESdrop ~ SES
               family = negative.binomial(theta = theta.SESdrop), data = mac))
 
   # Controlling for current status
-summary(SES.c <- glm(SESdrop ~ SES + age + SEX + INCOME 
+summary(SES.c <- glm(SESdrop ~ SEScurr + age + SEX + INCOME 
                      + attempters + ideators + depressed, 
               family = negative.binomial(theta = theta.SESdrop), data = mac))
 
-# with group "COMMENT"
-summary(mb1 <- glm(SESdrop ~ SEScurr + age + SEX + INCOME 
+# with group "COMMENT", co-varying for highest status
+summary(mb1 <- glm(SESdrop ~ SES + age + INCOME 
                      + COMMENT, 
               family = negative.binomial(theta = theta.SESdrop), data = mac))
-
 ls.mb1 <- lsmeans(mb1, "COMMENT")
 plot(ls.mb1, comparisons = TRUE, alpha = 0.05)
+
+# with group "COMMENT", without highest status
+summary(mb <- glm(SESdrop ~ age + INCOME 
+                     + COMMENT, 
+              family = negative.binomial(theta = theta.SESdrop), data = mac))
+ls.mb <- lsmeans(mb, "COMMENT")
+plot(ls.mb, comparisons = TRUE, alpha = 0.05)
+
 
 # Depressed as reference group  ##########################################################################################################
 
@@ -429,10 +444,20 @@ summary(SESdrop.leth <- glm(SESdrop ~  SEScurr + age + SEX + INCOME + edu + LETH
               family = negative.binomial(theta = theta.SESdrop), data = mac))
 
 # group w/o leth and w/o regret
-summary(SESdrop.demogrp <- glm(SESdrop ~  SEScurr + COMMENT + age + SEX + INCOME + edu, 
+summary(SESdrop.curr.demo.subst.grp <- glm(SESdrop ~  SEScurr + COMMENT + age +  INCOME + edu + SubstanceCurrent, 
               family = negative.binomial(theta = theta.SESdrop), data = mac))
-anova(SESdrop.demogrp)
-demo.group.ls <- lsmeans(SESdrop.demogrp, "COMMENT")
+anova(SESdrop.curr.demo.subst.grp)
+
+summary(SESdrop.hi.demo.subst.grp <- glm(SESdrop ~  SES + COMMENT + age +  INCOME + edu + SubstanceCurrent, 
+              family = negative.binomial(theta = theta.SESdrop), data = mac))
+
+
+summary(SESdrop.demo.subst.grp <- glm(SESdrop ~   COMMENT + age + INCOME + edu + SubstanceCurrent, 
+              family = negative.binomial(theta = theta.SESdrop), data = mac))
+#anova(SESdrop.grp)
+
+
+demo.group.ls <- lsmeans(SESdrop.demo.subst.grp, "COMMENT")
 contrast(demo.group.ls, method = "pairwise", adjust ="tukey")
 plot(demo.group.ls)
 
@@ -558,7 +583,10 @@ summary(m2.3 <- lme4::lmer(SES ~ time + edu*time + age*time + INCOMEcst*time +  
 
 ls2 <- lsmeans(m2.3, "time", by = "g")
 plot(ls2, type ~ SES, horiz=F,ylab = "SES", xlab = "Timepoint", comparisons = TRUE)
-
+ls2a <- lsmeans(m2.3, "g", by = "time")
+int <- update(pairs(ls2a, by = "g"), by = NULL)
+cld(ls2a)
+cld(int)
 # diff impact of education
 #summary(m3 <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + SEX*time
 #           + RACE*time + grp_leth*time*edu + (1|ID), data = m))
@@ -578,12 +606,17 @@ ls5 <- lsmeans(m5, "time", by = c("neurotic"), at=list(neurotic = c(10,50)))
 plot(ls5, type ~ SES, horiz=F,ylab = "SES", xlab = "time", comparisons = TRUE, alpha = 0.05)
 
 
-# check for predictor colinearity
-predictors <- mac[,c(10,16,25, 26, 51, 52, 107)]
-cormat <- (cor(predictors))
+# check for psychological predictor colinearity
+predictors <- mac[,c(26, 66, 108, 109)]
+cormat <- (cor(predictors, use="complete.obs"))
 order <- corrMatOrder(cormat, order="AOE")
 rcormat <- cormat[order,order]
 corrplot(rcormat)
+corrplot(rcormat,type = "upper", tl.pos = "td", cl.lim=c(-1,1),
+         method = "circle", tl.cex = 1, tl.col = 'black',
+         order = "hclust", diag = FALSE, 
+         addCoef.col="black", addCoefasPercent = FALSE,
+        p.mat = 1-rcormat, sig.level=0.3, insig = "blank")
 
 # substance lifetime
 summary(m6 <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + SubstanceCurrent*time + (1|ID), data = m))
@@ -595,9 +628,17 @@ summary(m7 <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + SEX*time
            + RACE*time + SubstanceLifetime*time + (1|ID), data = m))
 
 # no effect of WTAR
-summary(m8 <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + SEX*time
-           + RACE*time + SubstanceCurrent*time + WTAR*time + (1|ID), data = m))
+summary(m8 <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + SubstanceLifetime*time + WTAR*time + (1|ID), data = m))
 anova(m6,m8)
+
+# just regret
+summary(m8r <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + regret*time + SubstanceCurrent*time + (1|ID), data = m))
+car::Anova(m8r)
+
+# just neuroticism
+summary(m8n <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + neurotic*time + SubstanceCurrent*time + (1|ID), data = m))
+car::Anova(m8n)
+
 
 # DOI?
 summary(m8a <- lmer(SES ~ edu*time + age*time + INCOMEcst*time  + SubstanceCurrent*time + DOILIFETIME*time + (1|ID), data = m))
@@ -607,7 +648,6 @@ plot(ls8a, type ~ SES, horiz=F,ylab = "SES", xlab = "time", comparisons = TRUE, 
 
 summary(m8b <- lmer(SES ~ edu*time + age*time + INCOMEcst*time + regret*time + SubstanceCurrent*time + DOILIFETIME*time + (1|ID), data = m))
 car::Anova(m8b)
-anova(m4,m6, m8b)
 
 describe(mac$SES)
 # no effect of lethality
@@ -631,19 +671,46 @@ summary(sm1 <- glm(drop ~ COMMENT, family = binomial(link = "logit"), data = mac
 summary(sm2 <- glm(drop ~  age + COMMENT, family = binomial(link = "logit"), data = mac))
 anova(sm1,sm2)
 
-summary(sm3 <- glm(drop ~  age + SES + COMMENT, family = binomial(link = "logit"), data = mac))
-
+summary(sm3 <- glm(drop ~  age + COMMENT + INCOMEcst + edu + SubstanceCurrent, family = binomial(link = "logit"), data = mac))
+anova(sm3)
 
 # sensitivity analyses excluding recoded and unclear cases
 # mo = m original, excluding recoded and unclear cases
 mo <- m[m$originals,]
 # redo the best-fitting model: identical results
-summary(mo2 <- lmerTest::lmer(SES ~ time + edu*time + age*time + INCOMEcst*time +  COMMENT*time + (1|ID), data = mo))
+summary(mo2 <- lmerTest::lmer(SES ~ time + edu*time + age*time + INCOMEcst*time +  COMMENT*time + SubstanceCurrent*time + (1|ID), data = mo))
 car::Anova(mo2)
 
 # take the log of SES to take care of distortion (lower current SES allows for larger drop)
 summary(m2log <- lmerTest::lmer(log(SES + 1) ~ time + edu*time + age*time + INCOMEcst*time +  COMMENT*time + (1|ID), data = mo))
 car::Anova(m2log)
+
+# check hi/current SES by group in ANOVAs
+summary(mhi <- lm(SES ~ COMMENT, data = mac))
+anova(mhi)
+summary(mcurr <- lm(SEScurr ~ COMMENT, data = mac))
+anova(mcurr)
+lshi <- lsmeans(mhi,"COMMENT")
+pairs(lshi)
+
+lscurr <- lsmeans(mcurr,"COMMENT")
+pairs(lscurr)
+
+# does drop predict SA status above and beyond current SES?
+
+SAvsDC <-  mac[mac$group==2 | mac$group==5,]
+nonHC <- mac[mac$group>1,]
+summary(SApredict.drop <- glm(COMMENT ~  SEScurr +r.drop + SEX + RACE +  WTARRAW + SubstanceLifetime,  family = binomial(link = "logit"), data = SAvsDC))
+car::Anova(SApredict.drop)
+
+summary(SApredict.curr <- glm(COMMENT ~ SEScurr + age + edu + SEX + RACE + INCOMEcst + WTARRAW + SubstanceLifetime, family = binomial(link = "logit"), data = SAvsDC))
+car::Anova(SApredict.curr)
+
+anova(SApredict.curr,SApredict.drop, test="Chisq")
+stargazer(SApredict.drop, type="html", digits = 2,single.row=TRUE,  star.cutoffs = c(0.05, 0.01, 0.001), report = 'vcs*',
+dep.var.labels=c("Group: attempters vs. non-suicidal depressed"), covariate.labels=c("Current SES","SES drop, residualized for current SES",
+  "Sex", "Race: Asian Pacific", "Race: White", "IQ (WTAR raw score)", "Addiction"), out="grp_pred_ses_drop.html")
+
 
 # check SES intercorrelations
 boxplot(SES ~ time, data = m, main = "Change in SES", 
@@ -661,6 +728,22 @@ order <- corrMatOrder(cormat, order="AOE")
 rcormat <- cormat[order,order]
 corrplot(rcormat)
 
+cor(mac$edu,mac$SEScurr)
+cor(mac$edu,mac$SES)
+cor(mac$edu,mac$SESdrop)
 
+# in attempters and ideators
+sui <- mac[mac$suicidal==1,]
+
+
+cor(sui$edu,sui$SEScurr)
+cor(sui$edu,sui$SES)
+cor(sui$edu,sui$SESdrop)
+
+# check regret
+summary(mm1 <- lm(mac$regret~mac$COMMENT))
+
+# age at first attempt
+summary(am1 <- lm(mac$SES ~ mac$AGEATT1))
 
 ```
